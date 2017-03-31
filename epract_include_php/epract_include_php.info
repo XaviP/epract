@@ -1,0 +1,6 @@
+name = "Epract include php"
+description = "Epract module for including custom pages in php."
+package = Epract
+core = 7.x
+
+dependencies[] = epract_custom

@@ -1,0 +1,883 @@
+<?php
+/**
+ * @file epract_custom.module
+ */
+
+/**
+ * hook_menu.
+ */
+function epract_custom_menu() {
+  $items = array();
+  $items['epract/user/edit'] = array(
+    'title'            => 'Editar mi perfil',
+    'description'      => 'Editar mi perfil',
+    'page callback'    => 'epract_custom_user_edit',
+    'access callback'  => 'epract_custom_user_edit_access',
+    'type'             => MENU_LOCAL_TASK,
+    'file'             => 'user.pages.inc',
+    'file path'        => 'modules/user'
+  );
+  $items['epract/messages'] = array(
+    'title'            => 'Show messages',
+    'description'      => 'Show messages',
+    'page callback'    => 'epract_custom_show_messages_ajax',
+    'access arguments' => array('use vote up/down on comments'),
+    'type'             => MENU_CALLBACK,
+  );
+  $items['epract/digest/%/edit'] = array(
+    'title'            => 'Configuración del resúmen semanal del grupo.',
+    'description'      => 'Configuración del resúmen semanal del grupo.',
+    'page callback'    => 'drupal_get_form',
+    'page arguments'   => array('epract_custom_digest_form', 2),
+    'access callback'  => 'epract_custom_user_has_roles',
+    'access arguments' => array(array('editor', 'administrator')), // roles who can modify digest conf.
+    'type'             => MENU_CALLBACK,
+  );
+  $items['epract/new-goal'] = array(
+    'title'            => t('Create new goal-tasks-rules'),
+    'description'      => 'Create new goal, 2 tasks and 2 rules',
+    'page callback'    => 'epract_custom_goals_add',
+    'access arguments' => array('create goals entities'),
+    'type'             => MENU_CALLBACK,
+  );
+
+
+  return $items;
+}
+
+function epract_custom_user_edit() {
+  global $user;
+  $account = user_load($user->uid);
+  return drupal_get_form('user_profile_form', $account);
+}
+
+function epract_custom_user_edit_access(){
+  global $user;
+  return user_edit_access($user);
+}
+
+/**
+ * The form for a new goal-tasks-rules.
+ */
+function epract_custom_show_messages_ajax() {
+//  drupal_set_message('Gracias por votar!');
+  drupal_json_output(drupal_get_messages('status'));
+}
+
+function epract_custom_user_has_roles(array $roles) {
+  return count(array_intersect($roles, array_values($GLOBALS['user']->roles)));
+}
+
+function epract_custom_digest_form($form, &$form_state, $gid) {
+  if (!is_numeric($gid)) {
+    return ('Error en el identificador de grupo.');
+  }
+  $group = node_load($gid);
+  if (!isset($group->group_group['und'][0]['value']) || $group->group_group['und'][0]['value'] != '1') {
+    return ('El identificador no pertenece a un grupo.');
+  }
+  drupal_set_title('Configuración del resúmen semanal del grupo ' . $group->title);
+
+  $return = db_query("
+    SELECT * FROM {epract_digest} d
+    WHERE d.gid = :gid",
+    array(
+      ':gid' => $gid,
+    ))->fetchAllAssoc('gid');
+  if (isset($return[$gid])) {
+    $digest = $return[$gid];
+  }
+
+  $lasttime_date = (isset($digest->digest_lasttime) && $digest->digest_lasttime != 0) ? date("d/m/Y", $digest->digest_lasttime) : 'Nunca';
+
+  $nexttime_date = isset($digest->digest_nexttime) ? date("Y-m-d H:i:s", $digest->digest_nexttime) : date("Y-m-d H:i:s", REQUEST_TIME + 3600*24*7);
+  if (strtotime($nexttime_date) < REQUEST_TIME) {
+    $nexttime_date = date("Y-m-d H:i:s", REQUEST_TIME + 3600*24*7);
+  }
+
+  $form['epract_digest_gid'] = array('#type' => 'hidden', '#value' => $gid);
+  $form['epract_digest_lasttime'] = array(
+    '#type' => 'item',
+    '#markup' => 'Último día que fue enviado el resúmen semanal: <b>' . $lasttime_date . '</b>',
+  );
+  $form['epract_digest_status'] = array(
+    '#type' => 'checkbox',
+    '#title' => 'Activar el envio de novedades semanales.',
+    '#default_value' => isset($digest->digest_status) ? $digest->digest_status : 0,
+    '#description' => 'Si este checkbox está desactivado no se enviarán resúmenes semanales de este grupo.',
+    '#required' => FALSE,
+  );
+  $form['epract_digest_nexttime'] = array(
+    '#type' => 'date_select',
+    '#title' => 'Día en que será enviado el próximo resúmen semanal',
+    '#default_value' => $nexttime_date,
+    '#date_format' => "d/m/Y",
+    '#date_year_range' => '0:+1',
+    '#description' => 'Esta es la fecha en que está programado el próximo envío, pero puedes cambiarla.',
+    '#required' => FALSE,
+  );
+  $form['epract_digest_header'] = array(
+    '#type' => 'textarea',
+    '#title' => 'Novedades de la semana del grupo ' . $group->title,
+    '#default_value' => isset($digest->digest_header) ? $digest->digest_header : '',
+    '#description' => 'Este texto será el encabezado de los emails del resumen semanal. Si lo dejas en blanco, sólo se enviarán los contenidos y comentarios nuevos en el grupo.',
+    '#required' => FALSE,
+  );
+  $form['epract_digest_permanent'] = array(
+    '#type' => 'checkbox',
+    '#title' => 'Novedades permanentes',
+    '#default_value' => isset($digest->digest_permanent) ? $digest->digest_permanent : 0,
+    '#description' => 'Si marcas este checkbox, las novedades de la semana quedarán guardadas depués del envio semanal y se enviarán en los siguientes envíos. Sino, serán borradas después del próximo envio de emails.',
+    '#required' => FALSE,
+  );
+  $form['epract_digest_submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Guardar cambios',
+  );
+  return $form;
+//  return system_settings_form($form);
+}
+
+function epract_custom_digest_form_validate($form, &$form_state) {
+  if (strtotime($form_state['values']['epract_digest_nexttime']) < REQUEST_TIME) {
+    form_set_error('epract_digest_nexttime', t('Debes programar una fecha posterior a hoy para el envío de resúmenes.'));
+  }
+}
+
+function epract_custom_digest_form_submit($form, &$form_state) {
+  $gid = $form_state['values']['epract_digest_gid'];
+
+  $return = db_query("
+    SELECT * FROM {epract_digest} d
+    WHERE d.gid = :gid",
+    array(
+      ':gid' => $gid,
+    ))->fetchAllAssoc('gid');
+  
+  $new_group = (count($return) == 0) ? TRUE : FALSE;
+
+  $fields = array(
+    'gid' => $gid,
+    'digest_status' => $form_state['values']['epract_digest_status'],
+    'digest_permanent' => $form_state['values']['epract_digest_permanent'],
+    'digest_header' => $form_state['values']['epract_digest_header'],
+    'digest_nexttime' => strtotime($form_state['values']['epract_digest_nexttime']),
+  );
+  
+  if ($new_group) {
+    $fields['created'] = REQUEST_TIME;
+    $fields['digest_lasttime'] = 0;
+    $id = db_insert('epract_digest')
+      ->fields($fields)
+      ->execute();
+    drupal_set_message(t('Los resúmenes semanales para este grupo han sido creados.',
+      array(':gid' => $gid))
+    );
+  }
+  else {
+    $updated = db_update('epract_digest')
+      ->fields($fields)
+      ->condition('gid', $gid)
+      ->execute();
+    drupal_set_message(t('Los resúmenes semanales para este grupo han sido actualizados.',
+      array(':gid' => $gid)));
+  }
+}
+
+/**
+ * Implements hook_cron().
+ */
+function epract_custom_cron() {
+  $return = db_query('
+    SELECT * FROM {epract_digest} d
+    WHERE d.digest_status = 1');
+
+  //$queue = DrupalQueue::get('epract_digest_send_emails');
+  $now_time = time();
+  $enviar_email = FALSE;
+  global $base_url;
+  foreach ($return as $digest) {
+    if ($digest->digest_nexttime < $now_time) {
+      $output = '<div style="font-family: \'Open Sans\', sans-serif; width: 560px; margin: 0 auto; text-align: center;">';
+      $output .= '<img src="' . $base_url . '/sites/all/themes/epract_theme/images/emails_header.png">';
+      $group = node_load($digest->gid);
+      $output .= '<h3>¿Qué ha pasado en <i>' . $group->title . '</i> esta semana?</h3>';
+      if (!empty($digest->digest_header)) {
+//        $output .= '<div style="margin:0 auto;width:560px;"><div style="background-color: #404040;padding:20px;color:#ccc;">';
+        $output .= '<div style="margin:0 auto;width:560px; background-color: #f2f2f2;"><div style="border: 1px solid #e5e5e5; background-color: #f2f2f2; padding: 16px; color:#505559;">';
+        $output .= nl2br($digest->digest_header);
+        $output .= '</div></div>';
+      }
+      $output .= '</div><div style="font-family: \'Open Sans\', sans-serif; width: 560px; margin: 0 auto; text-align: left;">';
+      $new_nodes = db_query("
+        SELECT n.nid AS nid,
+        n.title AS title
+        FROM {node} n
+        LEFT JOIN {og_membership} og ON n.nid = og.etid
+        WHERE (n.type IN ('h5p_content', 'debate', 'webform', 'recursos_del_grupo', 'documento_colaborativo', 'quiz'))
+        AND n.created > :lasttime
+        AND n.status = 1
+        AND og.entity_type = 'node'
+        AND og.gid = :gid",
+        array(
+          ':lasttime' => $digest->digest_lasttime,
+          ':gid' => $digest->gid,
+        ));
+      if ($new_nodes->rowCount() > 0) {
+        $enviar_email = TRUE;
+        $output .= '<h4>Nuevos contenidos</h4>';
+        foreach ($new_nodes as $nn) {
+          $output .= '<a style ="text-decoration:none;font-size:11px;color:#ee7f00;" href="' .
+            url('node/'. $nn->nid, array('absolute' => TRUE)) . '">' . $nn->title . '</a><br />';
+        }
+      }
+      else {
+        $output .= '<p>No hay contenidos nuevos.</p><br />';
+
+      }
+      $new_comments = db_query("
+        SELECT COUNT(c.cid) AS num_comm,
+        n.nid AS nid,
+        n.title AS title
+        FROM {comment} c
+        LEFT JOIN {node} n ON n.nid = c.nid
+        LEFT JOIN {og_membership} og ON n.nid = og.etid
+        WHERE (n.type IN ('h5p_content', 'debate', 'webform', 'recursos_del_grupo', 'documento_colaborativo', 'quiz'))
+        AND n.status = 1
+        AND og.entity_type = 'node'
+        AND og.gid = :gid
+        AND c.created > :lasttime
+        GROUP BY n.nid",
+        array(
+          ':lasttime' => $digest->digest_lasttime,
+          ':gid' => $digest->gid,
+        ));
+      if ($new_comments->rowCount() > 0) {
+        $enviar_email = TRUE;
+        $output .= '<h4>Nuevos comentarios</h4>';
+        foreach ($new_comments as $nc) {
+          $output .= '<a style ="text-decoration:none;font-size:11px;color:#ee7f00;" href="' .
+            url('node/'. $nc->nid, array('absolute' => TRUE)) . '">' . $nc->title . '(' . $nc->num_comm . ')</a><br />';
+        }
+      }
+      else {
+        $output .= '<p>No hay comentarios nuevos.</p><br />';
+      }
+      $output .= '<br /><br /></div>';
+      $users_recipients = db_query("
+        SELECT f.uid AS uid
+        FROM {flagging} f
+        LEFT JOIN {flag} ff ON f.fid = ff.fid
+        WHERE ff.name = 'resumenes_semanales_de_grupo'
+        AND f.entity_id = :gid",
+        array(
+          ':gid' => $digest->gid,
+        ));
+      if ($users_recipients->rowCount() > 0 && $enviar_email) {
+        foreach ($users_recipients as $u) {
+          $account = user_load($u->uid);
+          if($account->status==1) drupal_mail('epract_custom', 'digest', $account->mail, 'es', array('data' => $output)); 
+        }
+        watchdog('epract_custom', 'Se han enviado los resúmenes semanales del grupo ' .
+          l($group->title, 'node/' . $digest->gid));
+      }
+      $fields = array(
+        'digest_lasttime' => $now_time,
+        'digest_nexttime' => (int)$now_time + 3600*24*7,
+      );
+      if ($digest->digest_permanent == 0) {
+        $fields['digest_header'] = '';
+      }
+      $updated = db_update('epract_digest')
+        ->fields($fields)
+        ->condition('gid', $digest->gid)
+        ->execute();
+
+      //$queue->createItem($data);
+    }
+  }
+}
+
+/**
+ * Implements hook_cron_queue_info().
+ */
+function epract_custom_cron_queue_info() {
+  $queues['epract_digest_send_emails'] = array(
+    'worker callback' => 'epract_custom_send_digest_email',
+    'time' => 2,
+  );
+  return $queues;
+}
+
+function epract_custom_send_digest_email($data) {
+  //epract_custom_queue_send_digest_email($data);
+}
+
+function epract_custom_queue_send_digest_email($data) {
+  //drupal_mail('epract_custom',...);
+}
+
+/**
+ * Implements hook_mail().
+ */
+function epract_custom_mail($key, &$message, $params) {
+  $message['headers']['Content-Type'] = 'text/html; charset=UTF-8;';
+  $message['subject'] .= '[epract] Resúmen semanal';
+  $message['body'][] = $params['data'];
+}
+
+function epract_custom_goals_add() {
+  // Create a basic entity structure to be used and passed to the validation
+  // and submission functions.
+  $entity = entity_create('goal', array('bundle_type' => 'goal_bundle'));
+  return drupal_get_form('epract_custom_newgoal_form', $entity);
+}
+
+function epract_custom_newgoal_form($form, &$form_state, $entity) {
+  $form = array();
+
+  $form['title'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Goal Title'),
+    '#required' => TRUE,
+    '#default_value' => (isset($entity->title) ? $entity->title : ''),
+  );
+
+  $form_state['goal_entity'] = $entity;
+
+  field_attach_form('goal', $entity, $form, $form_state);
+
+  $form['goal_userpoints']['und'][0]['value']['#default_value'] = 10;
+  $form['field_nodo_del_reto']['und'][0]['target_id']['#required'] = TRUE;
+
+  $form['number_comments']=array(
+    '#type'=>'select',
+    '#title'=>t('Enter number of comments'),
+    '#options'=>array('0' => '0', '1' => '1', '2' => '2', '3' => '3', '4' => '4'),
+    '#default_value'=>'1',
+    '#weight' => 100,
+  );
+  $form['number_votes']=array(
+    '#type'=>'select',
+    '#title'=>t('Enter number of votes'),
+    '#options'=>array('0' => '0', '1' => '1', '2' => '2', '3' => '3', '4' => '4'),
+    '#default_value'=>'1',
+    '#weight' => 101,
+  );
+  $form['submit']=array(
+    '#type'=>'submit',
+    '#value'=>t('Submit'),
+    '#weight' => 102,
+  );
+
+  return $form;
+}
+
+/**
+ * Validates the form.
+ */
+function epract_custom_newgoal_form_validate($form, &$form_state) {
+  field_attach_form_validate('goal', $form_state['goal_entity'], $form, $form_state);
+  if ($form_state['values']['number_comments'] == '0' &&
+      $form_state['values']['number_votes'] == '0') {
+  
+    form_set_error('number_comments', t('Debe programarse el reto con algún comentario o voto.'));
+  }
+  $goal_nid = $form_state['values']['field_nodo_del_reto']['und'][0]['target_id'];
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'goal')
+  ->entityCondition('bundle', 'goal_bundle')
+  ->fieldCondition('field_nodo_del_reto', 'target_id', $goal_nid, '=');
+  $result = $query->execute();
+  if (!empty($result)) {
+    $node_repeated = node_load($goal_nid);
+    form_set_error('field_nodo_del_reto', t('Ya existe un reto asociado al nodo: <em>' . $node_repeated->title . '(' . $node_repeated->nid . ')</em>.'));
+  }
+}
+
+function epract_custom_newgoal_form_submit($form, &$form_state) {
+  // Create goal.
+  $entity_goal = $form_state['goal_entity'];
+  $entity_goal->title = $form_state['values']['title'];
+  field_attach_submit('goal', $entity_goal, $form, $form_state);
+
+  if (isset($entity_goal->is_new)) {
+    $entity_goal->created = REQUEST_TIME;
+  }
+  $entity_goal->changed = REQUEST_TIME;
+
+  $success = entity_save('goal', $entity_goal);
+  if (isset($success)) {
+    drupal_set_message(t('El reto %title se ha creado.',
+        array('%title' => $entity_goal->title))
+    );
+  }
+
+  $goal_id = entity_id('goal', $entity_goal);
+  $goal_nid = $form_state['values']['field_nodo_del_reto']['und'][0]['target_id'];
+
+// Create task-comment
+  if ($form_state['values']['number_comments'] != '0') {
+    $entity_taskcom = entity_create('goal_task', array('bundle_type' => 'task_bundle'));
+    $entity_taskcom->title = 'Comentar nid ' . $goal_nid;
+    $entity_taskcom->type = 'comment_nid_' . $goal_nid;
+    $entity_taskcom->task_count = $form_state['values']['number_comments'];
+    $entity_taskcom->goal_id = $goal_id;
+
+    if (isset($entity_taskcom->is_new)) {
+      $entity_taskcom->created = REQUEST_TIME;
+    }
+    $entity_taskcom->changed = REQUEST_TIME;
+
+    $success = entity_save('goal_task', $entity_taskcom);
+    if (isset($success)) {
+      drupal_set_message('La tarea de comentarios se ha creado.');
+    }
+  }
+
+// Create task-vote
+  if ($form_state['values']['number_votes'] != '0') {
+    $entity_taskvot = entity_create('goal_task', array('bundle_type' => 'task_bundle'));
+    $entity_taskvot->title = 'Votar nid ' . $goal_nid;
+    $entity_taskvot->type = 'vote_nid_' . $goal_nid;
+    $entity_taskvot->task_count = $form_state['values']['number_votes'];
+    $entity_taskvot->goal_id = $goal_id;
+
+    if (isset($entity_taskvot->is_new)) {
+      $entity_taskcom->created = REQUEST_TIME;
+    }
+    $entity_taskcom->changed = REQUEST_TIME;
+
+    $success = entity_save('goal_task', $entity_taskvot);
+    if (isset($success)) {
+      drupal_set_message('La tarea de votaciones se ha creado.');
+    }
+  }
+
+  entity_defaults_rebuild();
+  drupal_set_message('Las reglas se han creado.');
+
+}
+
+function epract_custom_default_rules_configuration() {
+  $configs = array();
+
+  // Goal achieved message.
+  $rule_message = '{ "rules_reto_conseguido" : {
+    "LABEL" : "Reto conseguido",
+    "PLUGIN" : "reaction rule",
+    "OWNER" : "rules",
+    "TAGS" : [ "epract" ],
+    "REQUIRES" : [ "rules", "goals" ],
+    "ON" : { "goal_awarded" : [] },
+    "DO" : [
+      { "drupal_message" : { "message" : "[awarded-user:name], has conseguido superar el reto!" } }
+    ]}}';
+
+  $configs['rules_reto_conseguido'] = rules_import($rule_message);
+
+  //All task types in the goals_tasks table.
+  $task_types = db_query('SELECT type, goal_id FROM {goals_tasks}')->fetchAllKeyed();
+
+  // All goals in the site with their target nodes.
+  $query = db_query('SELECT g.goal_id AS goal_id,
+    f.field_nodo_del_reto_target_id AS goal_nid
+    FROM {goals} g
+    LEFT JOIN {field_data_field_nodo_del_reto} f ON  g.goal_id = f.entity_id
+    ORDER BY g.created ASC');
+  
+  foreach ($query as $g) {
+
+    if (array_key_exists('comment_nid_' . $g->goal_nid, $task_types) && $task_types['comment_nid_' . $g->goal_nid] == $g->goal_id) {
+      // Create rule-comment
+      $rule_comment = '{ "rules_comentar_nodo_' . $g->goal_nid . '" : {
+        "LABEL" : "Comentar nodo ' . $g->goal_nid . '",
+        "PLUGIN" : "reaction rule",
+        "OWNER" : "rules",
+        "TAGS" : [ "epract" ],
+        "REQUIRES" : [ "rules", "goals", "comment" ],
+        "ON" : { "comment_insert--comment_node_h5p_content" : { "bundle" : "comment_node_h5p_content" } },
+        "IF" : [ { "data_is" : { "data" : [ "comment:node:nid" ], "value" : "' . $g->goal_nid . '" } } ],
+        "DO" : [
+          { "goals_task_record" : {
+              "task_name" : "comment_nid_' . $g->goal_nid . '",
+              "user_to_save_for" : "[comment:author]",
+              "task_id" : "[comment:node]"
+          } }
+        ]
+        }}';
+      $configs['rules_comentar_nodo_'. $g->goal_nid] = rules_import($rule_comment);
+    }
+
+    if (array_key_exists('vote_nid_' . $g->goal_nid, $task_types) && $task_types['vote_nid_' . $g->goal_nid] == $g->goal_id) {
+      // Create rule-vote
+      $rule_vote = '{ "rules_votar_nodo_' . $g->goal_nid . '" : {
+        "LABEL" : "Votar nodo ' . $g->goal_nid . '",
+        "PLUGIN" : "reaction rule",
+        "OWNER" : "rules",
+        "TAGS" : [ "epract" ],
+        "REQUIRES" : [ "rules", "goals", "voting_rules" ],
+        "ON" : { "voting_rules_insert_comment" : [] },
+        "IF" : [ { "data_is" : { "data" : [ "comment:node:nid" ], "value" : "' . $g->goal_nid . '" } } ],
+        "DO" : [
+          { "goals_task_record" : {
+              "task_name" : "vote_nid_' . $g->goal_nid . '",
+              "user_to_save_for" : "[vote:uid]",
+              "task_id" : "[comment:node]"
+          } }
+        ]
+        }}';
+
+      $configs['rules_votar_nodo_'. $g->goal_nid] = rules_import($rule_vote);
+    }
+
+  }
+
+  return $configs;
+}
+
+/**
+ * Implements hook_form_alter().
+ * This is remove the make sticky option from node edit pages.
+ */
+function epract_custom_form_alter(&$form, &$form_state, $form_id) {
+  if (strpos($form_id, '_node_form') !== FALSE) {
+    unset($form['options']['sticky']);
+  }
+  if ($form_id == 'message_type_form') {
+    $form['message_type_fields']['message_text']['es'][0]['#wysiwyg'] = FALSE;
+    $form['message_type_fields']['message_text']['es'][1]['#wysiwyg'] = FALSE;
+    if (isset($form['message_type_fields']['message_text']['es'][2])) {
+      unset($form['message_type_fields']['message_text']['es'][2]);
+    }
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ *
+ * Block with tags cloud for the group.
+ */
+function epract_custom_block_info() {
+  $blocks['tags_cloud_grupo_con_retos'] = array(
+    'info' => t('Tags cloud de palabras clave del grupo con retos.'),
+    'status' => TRUE,
+    'region' => 'sidebar_second',
+    'visibility' => BLOCK_VISIBILITY_LISTED,
+    'pages' => 'community2/*',
+  );
+  $blocks['retos_del_grupo_para_usuario'] = array(
+    'info' => t('Estado de los retos del grupo para el usuario.'),
+    'status' => TRUE,
+    'region' => 'sidebar_second',
+    'visibility' => BLOCK_VISIBILITY_LISTED,
+    'pages' => 'community2/*',
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ *
+ * Block with tags cloud for the group.
+ */
+function epract_custom_block_view($delta = '') {
+  $block = array();
+  // The $delta parameter tells us which block is being requested.
+  switch ($delta) {
+    case 'tags_cloud_grupo_con_retos':
+      $block['subject'] = t('Palabras clave del grupo');
+      $block['content'] = array(
+        '#markup' => epract_custom_tagscloud_contents($delta),
+        '#attached' => array(
+          'js' => array(
+            drupal_get_path('module', 'epract_custom') . '/js/tags_cloud.js',
+          )
+        ),
+      );
+      break;
+    case 'retos_del_grupo_para_usuario':
+      $return_block = epract_custom_retos_del_grupo_query();
+      $block['subject'] = '';
+      $block['content'] = array(
+        '#markup' => $return_block,
+      );
+      break;
+  }
+  return $block;
+}
+
+/**
+ * Block with tags cloud for the group.
+ */
+function epract_custom_tagscloud_contents($which_block) {
+  switch ($which_block) {
+    case 'tags_cloud_grupo_con_retos':
+      $group_nid = og_context_determine_context('node');
+      $result = db_query( "
+        SELECT td.tid AS tid, td.name AS name, COUNT(td.tid) AS num_records
+        FROM {taxonomy_term_data} td
+        INNER JOIN {field_data_field_palabras_clave_para_conten} pc 
+        ON td.tid = pc.field_palabras_clave_para_conten_tid 
+        AND (pc.entity_type = 'node' AND pc.bundle IN ('h5p_content', 'debate', 'webform') AND pc.deleted = '0')
+        INNER JOIN {node} n 
+        ON pc.entity_id = n.nid
+        LEFT JOIN {taxonomy_vocabulary} v ON td.vid = v.vid
+        LEFT JOIN {og_membership} ogm 
+        ON n.nid = ogm.etid
+        AND ogm.entity_type = 'node'
+        WHERE ( (ogm.gid = :gid )
+        AND ( v.machine_name = 'palabras_clave_para_contenido') )
+        GROUP BY name, tid
+        ORDER BY num_records DESC
+        LIMIT 20 OFFSET 0",
+        array(
+          ':gid' => $group_nid,
+        )
+      );
+      $output = '<div class="tags-cloud-wrapper">';
+      $url_to_group = url('node/' . $group_nid);
+      foreach ($result as $tid) {
+        $output .= '<a class="tags-cloud-link-name" href="' . $url_to_group . 
+        '?title=&tid=' . $tid->name . '">' .
+        $tid->name . '<span class="tags-cloud-num-tids">(' . $tid->num_records . ')</span></a> ';
+      }
+      $output .= '</div>';
+      return $output;
+
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function epract_custom_node_insert($node) {
+  list(,, $bundle) = entity_extract_ids('node', $node);
+  if (!og_is_group_content_type('node', $bundle)) {
+    return;
+  }
+
+  $wrapper = entity_metadata_wrapper('node', $node);
+  if (!$wrapper->{'og_membership__' . OG_STATE_ACTIVE}->value()) {
+    // Node isn't associate, or doesn't have an active association with
+    // any group.
+    return;
+  }
+
+  $nids = array();
+  foreach ($wrapper->{'og_membership__' . OG_STATE_ACTIVE}->value() as $og_membership) {
+    if ($og_membership->group_type != 'node') {
+      // For simplicity we operate only on membership with node groups.
+      continue;
+    }
+    $nids[] = $og_membership->gid;
+  }
+
+  if (!$nids) {
+    return;
+  }
+  if ($node->status == 0) {
+    return;  
+  }
+
+  // Create a "Post in group" message. We don't use a token replacement
+  // here as it needs to get the data from multiple values of the field.
+  // Furthermore, this replacement probably doesn't make sense outside of
+  // this message-type context, so we don't want to add another token,
+  // that will not be used.
+  $arguments['!groups'] = array(
+    'callback' => 'epract_custom_group_list',
+    'pass message' => TRUE,
+  );
+  $message = message_create('epract_og_nuevo_contenido_en_grupo', array('arguments' => $arguments, 'uid' => $node->uid));
+
+  $wrapper = entity_metadata_wrapper('message', $message);
+  $wrapper->field_node_ref->set($node);
+  $wrapper->field_node_groups_ref->set($nids);
+  $wrapper->field_published->set($node->status);
+  $options = array(
+    'rendered fields' => array(
+    'message_notify_email_subject' => 'field_message_rendered_subject',
+    'message_notify_email_body' => 'field_message_rendered_body',
+    ),
+  );
+  //message_notify_send_message($message, $options);
+  if (module_exists('message_subscribe')) {
+    message_subscribe_send_message('node', $node, $message, array('email' => $options), array('entity access' => FALSE));
+  }
+}
+
+/**
+ * Message callback; Show a comma separated list of groups.
+ *
+ * @param $message
+ *   The message entity.
+ */
+function epract_custom_group_list(Message $message) {
+  $wrapper = entity_metadata_wrapper('message', $message);
+  $items = array();
+  foreach ($wrapper->field_node_groups_ref->value() as $node) {
+    if (!node_access('view', $node)) {
+      // User doesn't have access to view the group.
+      continue;
+    }
+    $url = entity_uri('node', $node);
+    $label = entity_label('node', $node);
+    $items[] = l($label, $url['path'], $url['options']);
+  }
+  return implode(', ', $items);
+}
+
+/**
+ * Implements hook_comment_insert().
+ */
+function epract_custom_comment_insert($comment) {
+  $account = user_load($comment->uid);
+  $node = node_load($comment->nid);
+
+  $message = message_create('epract_og_nuevo_mensaje_en_contenido_del_grupo', array(), $account);
+  // Save reference to the node in the node reference field, and the
+  // "publish" state (i.e. if the node is published or unpublished).
+  $wrapper = entity_metadata_wrapper('message', $message);
+  $wrapper->field_comment_node_ref->set($node);
+  $wrapper->field_comment_ref->set($comment);
+
+  // The message should be published only if the node and the comment are
+  // both published.
+  $published = $node->status && $comment->status;
+  $wrapper->field_published->set($published);
+  //$wrapper->save();
+
+  // Let message-notify deliver the email, and send the message for us.
+  // We pass in the options the field names, that will be used to capture
+  // the rendered message, and provide an email log.
+  $options = array(
+    'rendered fields' => array(
+      'message_notify_email_subject' => 'field_message_rendered_subject',
+      'message_notify_email_body' => 'field_message_rendered_body',
+    ),
+  );
+
+  $subscribe_options['uids'] = _epract_custom_list_node_subscribed_users($node);
+  $subscribe_options['entity access'] = FALSE;
+  $subscribe_options['skip context'] = TRUE;
+
+  //message_notify_send_message($message, $options);
+  if (module_exists('message_subscribe')) {
+    message_subscribe_send_message('comment', $comment, $message, array('email' => $options), $subscribe_options);
+  }
+
+}
+
+function _epract_custom_list_node_subscribed_users($node) {
+  $uids = db_query("SELECT f.uid AS uid
+    FROM {flagging} f
+    LEFT JOIN {flag} ff ON f.fid = ff.fid
+    LEFT JOIN {users} u ON f.uid = u.uid
+    WHERE u.status = 1
+    AND ff.name = 'subscribe_node'
+    AND f.entity_id = :nid",
+    array(
+      ':nid' => $node->nid,
+    ));
+  if ($uids->rowCount() > 0) {
+    $return = array();
+    foreach ($uids as $u) {
+      $return[$u->uid] = array('notifiers' => array('email')); 
+    }
+    return $return;
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function epract_custom_node_update($node) {
+  epract_custom_update_message_status('node', $node);
+}
+
+/**
+ * Update the "published" field in the message entity, when it changes in the
+ * related entity.
+ *
+ * @param $entity_type
+ *   The entity type (node or comment).
+ * @param $entity
+ *   The entity object.
+ */
+function epract_custom_update_message_status($entity_type, $entity) {
+  if ($entity->status == $entity->original->status) {
+    // status didn't change.
+    return;
+  }
+  list($id) = entity_extract_ids($entity_type, $entity);
+  $field_name = 'field_' . $entity_type . '_ref';
+
+  $query = new EntityFieldQuery();
+  $result = $query
+    ->entityCondition('entity_type', 'message')
+    ->fieldCondition($field_name, 'target_id',  $id, '=')
+    ->execute();
+
+  if (empty($result['message'])) {
+    return;
+  }
+
+  foreach (array_keys($result['message']) as $mid) {
+    $wrapper = entity_metadata_wrapper('message', $mid);
+    // If comment status changed, we still need to check the node as-well.
+    if ($entity_type == 'comment') {
+      $node = node_load($entity->nid);
+      $status = intval($entity->status && $node->status);
+    }
+    else {
+      // The entity is the node.
+      $status = $entity->status;
+    }
+    if ($wrapper->field_published->value() != $status) {
+      // Status changed, so update the message entity.
+      $wrapper->field_published->set($status);
+      $wrapper->save();
+    }
+  }
+}
+
+// Function to filter uncompleted goals for an user in the groups he/she has been subscribed.
+function epract_custom_retos_del_grupo_query() {
+  global $user;
+  $current_group = og_context($group_type = 'node');
+  if ($current_group) {
+    $s = "SELECT g.goal_id, g.title, ogm.gid,
+      gi.goal_img_fid AS fid_img,
+      ndr.field_nodo_del_reto_target_id AS nid,
+      gcg.goal_id AS completed
+      FROM {goals} g
+      LEFT JOIN {goals_completed_goals} gcg
+      ON g.goal_id = gcg.goal_id AND gcg.uid = :uid
+      LEFT JOIN {field_data_field_nodo_del_reto} ndr
+      ON g.goal_id = ndr.entity_id
+      LEFT JOIN {og_membership} ogm
+      ON ogm.entity_type = 'node' AND ndr.field_nodo_del_reto_target_id = ogm.etid
+      LEFT JOIN {field_data_goal_img} gi
+      ON g.goal_id = gi.entity_id
+      WHERE ogm.gid = :gid";
+    $result = db_query($s, array(':uid' => $user->uid, ':gid' =>$current_group['gid']))->fetchAll();
+    $goals_completed = '';
+    $goals_uncompleted = '';
+    foreach ($result as $goal) {
+      $goal_img = file_load($goal->fid_img);
+      $image_goal = '<img typeof="foaf:Image" title="' . $goal->title . '" src="' .
+      file_create_url($goal_img->uri) . '" style="width:30px;height:30px;"/>';
+      if ($goal->completed == NULL) {
+        $goals_uncompleted .= l($image_goal, 'node/' . $goal->nid, array('html'=> TRUE));
+      } else {
+        $goals_completed .= l($image_goal, 'node/' . $goal->nid, array('html'=> TRUE));
+      }
+    }
+    $group_node = node_load($current_group['gid']);
+    $return_block = '<b>Retos de ' . $group_node->title . '</b><br />Superados:<br />' . $goals_completed .
+      '<br />Pendientes:<br />' . $goals_uncompleted;
+    return $return_block;
+  }
+  return FALSE;
+}

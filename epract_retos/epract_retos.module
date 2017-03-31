@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Epract retos feature.
+ */
+
+include_once 'epract_retos.features.inc';

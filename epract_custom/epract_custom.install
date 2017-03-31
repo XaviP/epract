@@ -1,0 +1,161 @@
+<?php
+/**
+ * @file epract_custom.install
+ */
+
+function epract_custom_schema() {
+  $schema = array();
+  $schema['epract_digest'] = array(
+    'description' => 'Table for periodical digest of each group.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'Primary Key: Unique alert ID.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'gid' => array(
+        'description' => 'The gid of the digest.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'default' => 0,
+      ),
+      'digest_status' => array(
+        'description' => 'Enabled/disabled digest mailing.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'digest_permanent' => array(
+        'description' => 'Keep/delete header after digest mailing.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'digest_header' => array(
+        'description' => 'Header in digest mailing.',
+        'type' => 'text',
+        'size' => 'big',
+      ),
+      'digest_lasttime' => array(
+        'description' => 'Last time cron runs digest mailing, as a Unix timestamp.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'digest_nexttime' => array(
+        'description' => 'Next time digest mailing will be send, as a Unix timestamp.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The time that the digest for this group was created, as a Unix timestamp.',
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+  return $schema;
+}
+
+function epract_custom_enable() {
+  $current = variable_get('mail_system', array('default-system' => 'DefaultMailSystem'));
+  $addition = array(
+    'epract_custom' => 'EpractCustomMailSystem',
+    'message_notify' => 'EpractCustomMailSystem',
+    'message_subscribe' => 'EpractCustomMailSystem',
+  );
+  variable_set('mail_system', array_merge($current, $addition));
+}
+
+function epract_custom_disable() {
+  $mail_system = variable_get('mail_system', array('default-system' => 'DefaultMailSystem'));
+  unset($mail_system['epract_custom']);
+  unset($mail_system['message_notify']);
+  unset($mail_system['message_subscribe']);
+  variable_set('mail_system', $mail_system);
+}
+
+/**
+ * Implements hook_update_N().
+ */
+function epract_custom_update_7100() {
+  // We extend DefaultMailSystem class for sending html emails.
+  $current = variable_get('mail_system', array('default-system' => 'DefaultMailSystem'));
+  $addition = array(
+    'epract_custom' => 'EpractCustomMailSystem',
+    'message_notify' => 'EpractCustomMailSystem',
+    'message_subscribe' => 'EpractCustomMailSystem',
+  );
+  variable_set('mail_system', array_merge($current, $addition));
+
+
+  $schema = array();
+  $schema['epract_digest'] = array(
+    'description' => 'Table for periodical digest of each group.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'Primary Key: Unique alert ID.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'gid' => array(
+        'description' => 'The gid of the digest.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'default' => 0,
+      ),
+      'digest_status' => array(
+        'description' => 'Enabled/disabled digest mailing.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'digest_permanent' => array(
+        'description' => 'Keep/delete header after digest mailing.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+      'digest_header' => array(
+        'description' => 'Header in digest mailing.',
+        'type' => 'text',
+        'size' => 'big',
+      ),
+      'digest_lasttime' => array(
+        'description' => 'Last time cron runs digest mailing, as a Unix timestamp.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'digest_nexttime' => array(
+        'description' => 'Next time digest mailing will be send, as a Unix timestamp.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The time that the digest for this group was created, as a Unix timestamp.',
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+  db_create_table('epract_digest', $schema['epract_digest']);
+}

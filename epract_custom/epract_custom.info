@@ -1,0 +1,12 @@
+name = "Epract custom"
+description = "Custom module for epract site."
+package = Epract
+core = 7.x
+
+dependencies[] = views
+dependencies[] = og
+dependencies[] = rules
+dependencies[] = entityreference_autocomplete
+dependencies[] = message
+
+files[] = includes/epract_custom_html_email.inc
