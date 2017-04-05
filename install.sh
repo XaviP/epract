@@ -1,8 +1,5 @@
 #!/bin/bash
 
-cd sites/all/modules
-git clone https://github.com/XaviP/epract.git
-cd ../../../
 cp -r sites/all/modules/epract/not_module_epract_theme/ sites/all/themes/
 mv sites/all/themes/not_module_epract_theme sites/all/themes/epract_theme
 drush -y en $(cat sites/all/modules/epract/modules_enabled.txt)
