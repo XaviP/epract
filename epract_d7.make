@@ -99,18 +99,6 @@ projects:
     version: '4.14'
   zen:
     version: '5.6'
-  epract_custom:
-    type: module
-    custom_download: true
-  epract_include_php:
-    type: module
-    custom_download: true
-  epract_retos:
-    type: module
-    custom_download: true
-  epract_theme:
-    type: theme
-    custom_download: true
 libraries:
   textcomplete:
     directory_name: textcomplete
