@@ -9,5 +9,8 @@ drush site-install standard --account-name=admin --account-pass=admin --db-url=m
 cd sites/all/modules
 git clone https://github.com/XaviP/epract.git
 cd epract
+cp -r not_module_epract_theme/ ../../themes/
+mv ../../themes/not_module_epract_theme ../../themes/epract_theme
 drush en $(cat modules_enabled.txt)
+
 
