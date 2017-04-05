@@ -12,5 +12,10 @@ cd epract
 cp -r not_module_epract_theme/ ../../themes/
 mv ../../themes/not_module_epract_theme ../../themes/epract_theme
 drush en $(cat modules_enabled.txt)
-
+drush dis toolbar overlay
+drush en zen epract_theme
+drush vset theme_default epract_theme
+drush dis bartik
+drush en epract_retos
+drush en epract_custom epract_include_php
 
