@@ -1,7 +1,7 @@
 Installation
 ------------
 
-- From the linux shell:
+- From the linux shell (drush 8.x.x installed):
 
 ```
 cd [installation dir]
@@ -15,7 +15,9 @@ sudo chgrp -R www-data ../[installation dir]
 
 - From the web interface
 
-1. download/install hp5 libraries (https://h5p.org/update-all-content-types)
-2. set pattern paths (admin/config/search/path/patterns)
+1. disable theme registry
+2. download/install hp5 libraries (https://h5p.org/update-all-content-types)
 3. review blocks
+4. set pattern paths (admin/config/search/path/patterns) like:
+   `community2/[node:og-group-retos-ref]/[node:title]`
 
