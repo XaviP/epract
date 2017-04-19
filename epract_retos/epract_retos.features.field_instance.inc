@@ -1083,7 +1083,7 @@ function epract_retos_field_default_field_instances() {
         'module' => 'iframe',
         'settings' => array(),
         'type' => 'iframe_formatter_only',
-        'weight' => 3,
+        'weight' => 1,
       ),
       'teaser' => array(
         'label' => 'above',
@@ -1118,6 +1118,47 @@ function epract_retos_field_default_field_instances() {
     ),
   );
 
+  // Exported field_instance:
+  // 'node-documento_colaborativo-field_palabras_clave_para_conten'.
+  $field_instances['node-documento_colaborativo-field_palabras_clave_para_conten'] = array(
+    'bundle' => 'documento_colaborativo',
+    'default_value' => NULL,
+    'deleted' => 0,
+    'description' => '',
+    'display' => array(
+      'default' => array(
+        'label' => 'above',
+        'settings' => array(),
+        'type' => 'hidden',
+        'weight' => 3,
+      ),
+      'teaser' => array(
+        'label' => 'above',
+        'settings' => array(),
+        'type' => 'hidden',
+        'weight' => 0,
+      ),
+    ),
+    'entity_type' => 'node',
+    'field_name' => 'field_palabras_clave_para_conten',
+    'label' => 'Palabras clave',
+    'required' => 0,
+    'settings' => array(
+      'quiz_result' => FALSE,
+      'user_register_form' => FALSE,
+    ),
+    'widget' => array(
+      'active' => 0,
+      'module' => 'taxonomy',
+      'settings' => array(
+        'autocomplete_path' => 'taxonomy/autocomplete',
+        'size' => 60,
+      ),
+      'type' => 'taxonomy_autocomplete',
+      'weight' => 36,
+    ),
+  );
+
   // Exported field_instance: 'node-documento_colaborativo-og_group_retos_ref'.
   $field_instances['node-documento_colaborativo-og_group_retos_ref'] = array(
     'bundle' => 'documento_colaborativo',
@@ -1133,7 +1174,7 @@ function epract_retos_field_default_field_instances() {
           'link' => FALSE,
         ),
         'type' => 'entityreference_label',
-        'weight' => 4,
+        'weight' => 2,
       ),
       'teaser' => array(
         'label' => 'above',

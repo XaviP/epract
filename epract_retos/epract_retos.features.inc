@@ -171,6 +171,17 @@ function epract_retos_node_info() {
       'title_label' => t('Título'),
       'help' => '',
     ),
+    'documento_colaborativo' => array(
+      'name' => t('Documento colaborativo'),
+      'base' => 'node_content',
+      'description' => t('Integrar en una página un documento colaborativo de gdocs o un etherpad.'),
+      'has_title' => '1',
+      'title_label' => t('Título'),
+      'help' => t('Para integrar un documento colaborativo en el site:<br />
+- Abre un documento colaborativo en gdrive o un etherpad en titanpad o piratepad.<br />
+- Obten el enlace para compartir el documento con permisos de edición.<br />
+- Incluye el enlace en el campo "Iframe URL"'),
+    ),
     'grupo_con_retos' => array(
       'name' => t('Grupo con retos'),
       'base' => 'node_content',
